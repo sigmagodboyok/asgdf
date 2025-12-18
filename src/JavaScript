@@ -1,0 +1,31 @@
+// animations
+animControls.innerHTML = "";
+const anims = inst.availableAnims || [];
+anims.forEach(name =&gt; {
+  const b = document.createElement("button");
+  b.textContent = name;
+  b.style.marginRight = "6px";
+  b.onclick = () =&gt; { api.playAnimOnSelected(name); };
+  animControls.appendChild(b);
+});
+
+  }
+  btnAdd.onclick = async () => {
+    await api.instantiatePrefab();
+    refreshList();
+  };
+  btnCenter.onclick = () => api.focusSelected();
+  btnApply.onclick = () => {
+    const sel = api.getSelected();
+    if (!sel) return;
+    const transform = {
+      position: { x: parseFloat(posX) || 0, y: parseFloat(posY) || 0, z: parseFloat(posZ) || 0 },
+      rotationY: parseFloat(rotY.value) || 0,
+      scale: parseFloat(scale.value) || 1,
+      active: activeToggle.checked
+    };
+    api.applyTransformToSelected(transform);
+    refreshList();
+  };
+  return { refreshList, updateInspector };
+}
