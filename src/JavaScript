@@ -29,3 +29,157 @@ anims.forEach(name =&gt; {
   };
   return { refreshList, updateInspector };
 }
+const root = gltf.scene.clone(true);
+root.name = `${prefab.name}-${id}`;
+root.position.copy(position);
+root.scale.setScalar(prefab.scale || 1.0);
+
+// Simple shadow receiving/casting
+root.traverse(node =&gt; {
+  if (node.isMesh) {
+    node.castShadow = true;
+    node.receiveShadow = true;
+  }
+});
+
+// Animation setup
+const mixer = new THREE.AnimationMixer(root);
+mixers.push(mixer);
+
+// Map available animations
+const availableAnims = [];
+(gltf.animations || []).forEach(clip =&gt; {
+  const name = clip.name || clip.userData?.name || "unknown";
+  availableAnims.push(name);
+});
+
+scene.add(root);
+
+const inst = {
+  id,
+  name: prefab.name,
+  object: root,
+  mixer,
+  clips: gltf.animations || [],
+  availableAnims,
+  active: true,
+  currentAction: null
+};
+
+// default play idle if exists
+const idleClip = inst.clips.find(c =&gt; /idle/i.test(c.name));
+if (idleClip) {
+  playAction(inst, idleClip.name, 0.2, true);
+}
+
+instances.push(inst);
+return inst;
+
+  } catch (err) {
+    console.error("Error loading prefab model:", err);
+    alert("Ошибка загрузки модели. Проверьте путь assets/model/demo.glb и консоль.");
+    return null;
+  }
+}
+function playAction(inst, clipName, fade = 0.2, loop = true) {
+  if (!inst || !inst.mixer) return;
+  const clip = inst.clips.find(c => c.name === clipName);
+  if (!clip) {
+    console.warn("Clip not found:", clipName);
+    return;
+  }
+  const action = inst.mixer.clipAction(clip);
+  if (inst.currentAction && inst.currentAction !== action) {
+    inst.currentAction.fadeOut(fade);
+  }
+  action.reset().fadeIn(fade).play();
+  inst.currentAction = action;
+  if (!loop) {
+    action.setLoop(THREE.LoopOnce, 0);
+    action.clampWhenFinished = true;
+  } else {
+    action.setLoop(THREE.LoopRepeat);
+  }
+}
+// Simple visibility/active toggle (no deep enable/disable)
+function setActive(inst, active) {
+  inst.active = active;
+  inst.object.visible = active;
+  if (!active && inst.currentAction) {
+    inst.currentAction.fadeOut(0.2);
+    inst.currentAction = null;
+  }
+}
+function applyTransform(inst, transform) {
+  if (!inst) return;
+  if (transform.position) {
+    inst.object.position.set(transform.position.x, transform.position.y, transform.position.z);
+  }
+  if (typeof transform.rotationY !== "undefined") {
+    inst.object.rotation.y = transform.rotationY;
+  }
+  if (typeof transform.scale !== "undefined") {
+    inst.object.scale.setScalar(transform.scale);
+  }
+  if (typeof transform.active !== "undefined") {
+    setActive(inst, transform.active);
+  }
+}
+function focusOnInstance(inst) {
+  if (!inst) return;
+  const worldPos = new THREE.Vector3();
+  inst.object.getWorldPosition(worldPos);
+  controls.target.copy(worldPos);
+  camera.position.set(worldPos.x + 4, worldPos.y + 2, worldPos.z + 6);
+  controls.update();
+}
+// API for inspector
+const api = {
+  getInstances: () => instances.map(i => ({ id: i.id, name: i.name, object: i.object, availableAnims: i.availableAnims, active: i.active })),
+  selectInstanceById: (id) => { selectedId = id; },
+  getSelected: () => selectedId,
+  instantiatePrefab: async () => {
+    // place randomly on XZ plane
+    const x = (Math.random() - 0.5) * 6;
+    const z = (Math.random() - 0.5) * 6;
+    const inst = await instantiate(DefaultPrefab, new THREE.Vector3(x, 0, z));
+    if (inst) {
+      selectedId = inst.id;
+    }
+  },
+  focusSelected: () => {
+    const inst = instances.find(i => i.id === selectedId);
+    if (inst) focusOnInstance(inst);
+  },
+  applyTransformToSelected: (transform) => {
+    const inst = instances.find(i => i.id === selectedId);
+    if (inst) applyTransform(inst, transform);
+  },
+  playAnimOnSelected: (name) => {
+    const inst = instances.find(i => i.id === selectedId);
+    if (!inst) return;
+    // try exact name, then regexp-based matching
+    let clip = inst.clips.find(c => c.name === name);
+    if (!clip) {
+      clip = inst.clips.find(c => new RegExp(name, "i").test(c.name));
+    }
+    if (clip) {
+      playAction(inst, clip.name, 0.15, true);
+    } else {
+      console.warn("Animation not found on selected instance:", name);
+    }
+  }
+};
+const inspector = createInspector(api);
+inspector.refreshList();
+inspector.updateInspector();
+// Hook to update inspector when selection/members change
+setInterval(() => {
+  inspector.refreshList();
+  inspector.updateInspector();
+}, 500);
+// Seed scene with a couple of instances
+(async () => {
+  await api.instantiatePrefab();
+  await api.instantiatePrefab();
+})();
